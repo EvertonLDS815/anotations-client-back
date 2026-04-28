@@ -15,16 +15,27 @@ const clientSchema = new mongoose.Schema({
   valueTotal: { type: Number, required: true },
   desconto: { type: Number, required: true },
   dataDaCompra: { type: Date, default: Date.now },
+
   parcelas: [
     {
-        valor: { type: Number, required: true },
-        dataDeVencimento: { type: Date, required: true },
-        dataDePagamento: { type: Date, default: null },
-        status: { type: String, enum: ['late', 'pending', 'paid'], default: 'pending' }
+      valor: { type: Number, required: true },
+
+      valorPago: { type: Number, default: 0 }, // 👈 ADICIONE ISSO
+
+      dataDeVencimento: { type: Date, required: true },
+      dataDePagamento: { type: Date, default: null },
+
+      status: {
+        type: String,
+        enum: ['late', 'pending', 'paid'],
+        default: 'pending'
+      }
     },
   ],
+
   createdAt: { type: Date, default: Date.now },
 });
+
 const Client = mongoose.model('Client', clientSchema);
 
 // conectar ao MongoDB
@@ -168,6 +179,7 @@ app.get('/client/:id', async (req, res) => {
 app.put('/client/:clientId/parcela/:parcelaId', async (req, res) => {
   try {
     const { clientId, parcelaId } = req.params;
+    const { valorPago } = req.body; // 👈 novo
 
     const client = await Client.findOne({
       _id: clientId,
@@ -185,17 +197,43 @@ app.put('/client/:clientId/parcela/:parcelaId', async (req, res) => {
     }
 
     let novoStatus;
-    let dataDePagamento;
+    let dataDePagamento = parcela.dataDePagamento;
 
-    if (parcela.dataDePagamento) {
-      // 🔁 DESMARCAR pagamento
+    // 🔁 DESMARCAR (zera tudo)
+    if (valorPago === 0) {
+      parcela.valorPago = 0;
       dataDePagamento = null;
       novoStatus = calcularStatusParcela(parcela.dataDeVencimento);
+    }
 
-    } else {
-      // ✅ MARCAR como pago
-      dataDePagamento = new Date();
-      novoStatus = "paid";
+    // 💰 PAGAMENTO (parcial ou total)
+    else if (valorPago > 0) {
+      parcela.valorPago += Number(valorPago);
+
+      // 🔒 evita ultrapassar
+      if (parcela.valorPago > parcela.valor) {
+        parcela.valorPago = parcela.valor;
+      }
+
+      if (parcela.valorPago >= parcela.valor) {
+        novoStatus = "paid";
+        dataDePagamento = new Date();
+      } else {
+        novoStatus = calcularStatusParcela(parcela.dataDeVencimento);
+      }
+    }
+
+    // 🔁 fallback (clicar sem valor → comportamento antigo)
+    else {
+      if (parcela.dataDePagamento) {
+        parcela.valorPago = 0;
+        dataDePagamento = null;
+        novoStatus = calcularStatusParcela(parcela.dataDeVencimento);
+      } else {
+        parcela.valorPago = parcela.valor;
+        dataDePagamento = new Date();
+        novoStatus = "paid";
+      }
     }
 
     const clientAtualizado = await Client.findOneAndUpdate(
@@ -203,15 +241,12 @@ app.put('/client/:clientId/parcela/:parcelaId', async (req, res) => {
       {
         $set: {
           "parcelas.$.status": novoStatus,
-          "parcelas.$.dataDePagamento": dataDePagamento
+          "parcelas.$.dataDePagamento": dataDePagamento,
+          "parcelas.$.valorPago": parcela.valorPago
         }
       },
       { new: true }
     );
-
-    if (!clientAtualizado) {
-      return res.status(500).json({ error: "Erro ao atualizar cliente" });
-    }
 
     const parcelaAtualizada = clientAtualizado.parcelas.id(parcelaId);
 
@@ -221,7 +256,7 @@ app.put('/client/:clientId/parcela/:parcelaId', async (req, res) => {
     });
 
   } catch (err) {
-    console.error("ERRO DETALHADO:", err); // 👈 importante pra debug
+    console.error("ERRO DETALHADO:", err);
     res.status(500).json({ error: err.message });
   }
 });
