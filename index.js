@@ -99,10 +99,9 @@ app.get('/clients', async (req, res) => {
 
 app.post("/client", async (req, res) => {
   try {
-    const { name, valueTotal, numeroDeParcelas, desconto = 0, parcelas } = req.body;
+    const { name, valueTotal, desconto = 0, parcelas } = req.body;
 
-    // 🧪 validação básica
-    if (!name || !valueTotal || !numeroDeParcelas || !parcelas || !Array.isArray(parcelas)) {
+    if (!name || !valueTotal || !parcelas || !Array.isArray(parcelas)) {
       return res.status(400).json({ error: "Dados obrigatórios inválidos" });
     }
 
@@ -149,7 +148,6 @@ app.post("/client", async (req, res) => {
     const client = await Client.create({
       name,
       valueTotal,
-      numeroDeParcelas,
       desconto,
       parcelas: parcelasFormatadas
       // dataDaCompra automático
@@ -157,8 +155,9 @@ app.post("/client", async (req, res) => {
 
     res.status(201).json(client);
 
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.log("ERRO DETALHADO:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
