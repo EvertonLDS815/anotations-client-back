@@ -8,11 +8,9 @@ dotenv.config();
 const cors = require('cors');
 app.use(cors({
   origin: [
-    'http://10.0.0.110:5173',
-    'https://anotations-client-back.vercel.app/'
+    'http://10.0.0.110:5173'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 
