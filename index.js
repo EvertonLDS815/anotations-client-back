@@ -8,7 +8,7 @@ dotenv.config();
 const cors = require('cors');
 app.use(cors({
   origin: [
-    'http://localhost:5173',
+    'http://10.0.0.110:5173',
     'https://anotations-client-back.vercel.app/'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
