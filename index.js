@@ -1,20 +1,34 @@
 const express = require('express');
-const app = express();
-const port = 3000 || process.env.PORT;
-const dotenv = require('dotenv');
 const mongoose = require('mongoose');
-dotenv.config();
-
 const cors = require('cors');
-app.use(cors({
-  origin: [
-    'http://10.0.0.110:5173'
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-}));
+
+const app = express();
+
+// ✅ CORS liberado (depois você restringe)
+app.use(cors());
 app.use(express.json());
 
+// ✅ conexão reutilizável (IMPORTANTE PRA VERCEL)
+let isConnected = false;
 
+async function connectDB() {
+  if (isConnected) return;
+
+  try {
+    const db = await mongoose.connect(process.env.MONGODB_URI);
+
+    isConnected = db.connections[0].readyState === 1;
+
+    console.log("🚀 MongoDB conectado!");
+  } catch (err) {
+    console.error("🔴 Erro ao conectar no MongoDB:", err);
+    throw err;
+  }
+}
+
+// =======================
+// 📦 SCHEMA
+// =======================
 const clientSchema = new mongoose.Schema({
   name: { type: String, required: true },
   valueTotal: { type: Number, required: true },
@@ -24,9 +38,7 @@ const clientSchema = new mongoose.Schema({
   parcelas: [
     {
       valor: { type: Number, required: true },
-
-      valorPago: { type: Number, default: 0 }, // 👈 ADICIONE ISSO
-
+      valorPago: { type: Number, default: 0 },
       dataDeVencimento: { type: Date, required: true },
       dataDePagamento: { type: Date, default: null },
 
@@ -41,38 +53,30 @@ const clientSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const Client = mongoose.model('Client', clientSchema);
+const Client = mongoose.models.Client || mongoose.model('Client', clientSchema);
 
-// conectar ao MongoDB
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('🚀 MongoDB connected!'))
-  .catch(err => console.error('🔴 MongoDB connection error:', err));
-
-  function calcularStatusParcela(dataDeVencimento) {
+// =======================
+// 🧠 FUNÇÕES
+// =======================
+function calcularStatusParcela(dataDeVencimento) {
   const hoje = new Date();
-  const hojeSemHora = new Date(
-    hoje.getFullYear(),
-    hoje.getMonth(),
-    hoje.getDate()
-  );
+  hoje.setHours(0, 0, 0, 0);
 
   const vencimento = new Date(dataDeVencimento);
-  const vencimentoSemHora = new Date(
-    vencimento.getFullYear(),
-    vencimento.getMonth(),
-    vencimento.getDate()
-  );
+  vencimento.setHours(0, 0, 0, 0);
 
-  if (vencimentoSemHora < hojeSemHora) {
-    return "late";
-  } else {
-    return "pending";
-  }
+  return vencimento < hoje ? "late" : "pending";
 }
 
+// =======================
+// 📌 ROTAS
+// =======================
 
+// 🔎 GET ALL
 app.get('/clients', async (req, res) => {
   try {
+    await connectDB();
+
     const clients = await Client.find();
 
     const hoje = new Date().toISOString().split("T")[0];
@@ -80,7 +84,7 @@ app.get('/clients', async (req, res) => {
     const clientsAtualizados = clients.map(client => ({
       ...client.toObject(),
       parcelas: client.parcelas.map(parcela => {
-        
+
         if (parcela.status === "paid") return parcela;
 
         const status =
@@ -95,22 +99,24 @@ app.get('/clients', async (req, res) => {
       })
     }));
 
-    return res.status(200).json(clientsAtualizados);
+    res.status(200).json(clientsAtualizados);
 
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
-app.post("/client", async (req, res) => {
+// ➕ CREATE
+app.post('/client', async (req, res) => {
   try {
+    await connectDB();
+
     const { name, valueTotal, desconto = 0, parcelas } = req.body;
 
     if (!name || !valueTotal || !parcelas || !Array.isArray(parcelas)) {
       return res.status(400).json({ error: "Dados obrigatórios inválidos" });
     }
 
-    // 🧠 validar soma das parcelas
     const somaParcelas = parcelas.reduce((acc, p) => acc + Number(p.valor || 0), 0);
 
     if (somaParcelas !== valueTotal) {
@@ -119,11 +125,9 @@ app.post("/client", async (req, res) => {
       });
     }
 
-    // 🧠 data de hoje (sem hora)
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
 
-    // 🔄 formatar parcelas
     const parcelasFormatadas = parcelas.map((p, index) => {
       if (!p.valor || !p.dataDeVencimento) {
         throw new Error(`Parcela ${index + 1} inválida`);
@@ -149,13 +153,11 @@ app.post("/client", async (req, res) => {
       };
     });
 
-    // 💾 salvar no banco
     const client = await Client.create({
       name,
       valueTotal,
       desconto,
       parcelas: parcelasFormatadas
-      // dataDaCompra automático
     });
 
     res.status(201).json(client);
@@ -166,24 +168,31 @@ app.post("/client", async (req, res) => {
   }
 });
 
-// Pegar apenas um cliente específico
+// 🔎 GET ONE
 app.get('/client/:id', async (req, res) => {
   try {
+    await connectDB();
+
     const client = await Client.findById(req.params.id);
+
     if (!client) {
       return res.status(404).json({ error: 'Cliente não encontrado' });
     }
-    return res.status(200).json(client);
+
+    res.status(200).json(client);
+
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Lembrando que o id é o id do cliente e a parcela é o número do array de objetos se for a primeira parcela você mandaria o 0 e o segundo seria o 1 e assim por diante
+// ✏️ UPDATE PARCELA
 app.put('/client/:clientId/parcela/:parcelaId', async (req, res) => {
   try {
+    await connectDB();
+
     const { clientId, parcelaId } = req.params;
-    const { valorPago } = req.body; // 👈 novo
+    const { valorPago } = req.body;
 
     const client = await Client.findOne({
       _id: clientId,
@@ -196,25 +205,18 @@ app.put('/client/:clientId/parcela/:parcelaId', async (req, res) => {
 
     const parcela = client.parcelas.id(parcelaId);
 
-    if (!parcela) {
-      return res.status(404).json({ error: "Parcela não encontrada" });
-    }
-
     let novoStatus;
     let dataDePagamento = parcela.dataDePagamento;
 
-    // 🔁 DESMARCAR (zera tudo)
     if (valorPago === 0) {
       parcela.valorPago = 0;
       dataDePagamento = null;
       novoStatus = calcularStatusParcela(parcela.dataDeVencimento);
     }
 
-    // 💰 PAGAMENTO (parcial ou total)
     else if (valorPago > 0) {
       parcela.valorPago += Number(valorPago);
 
-      // 🔒 evita ultrapassar
       if (parcela.valorPago > parcela.valor) {
         parcela.valorPago = parcela.valor;
       }
@@ -227,7 +229,6 @@ app.put('/client/:clientId/parcela/:parcelaId', async (req, res) => {
       }
     }
 
-    // 🔁 fallback (clicar sem valor → comportamento antigo)
     else {
       if (parcela.dataDePagamento) {
         parcela.valorPago = 0;
@@ -265,6 +266,7 @@ app.put('/client/:clientId/parcela/:parcelaId', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Servidor rodando em http://10.0.0.110:${port}`);
-});
+// =======================
+// 🔥 EXPORTAÇÃO (VERCEL)
+// =======================
+module.exports = app;
