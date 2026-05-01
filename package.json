@@ -4,6 +4,7 @@
   "main": "index.js",
   "author": "Everton Lino",
   "license": "MIT",
+  "repository": "https://github.com/EvertonLDS815/anotations-client-back.git",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js"
@@ -13,5 +14,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "mongoose": "^9.4.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }

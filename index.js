@@ -1,6 +1,6 @@
 const express = require('express');
 const app = express();
-const port = 3000;
+const port = 3000 || process.env.PORT;
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 dotenv.config();
@@ -265,6 +265,6 @@ app.put('/client/:clientId/parcela/:parcelaId', async (req, res) => {
   }
 });
 
-app.listen(port, '0.0.0.0', () => {
+app.listen(port, () => {
   console.log(`Servidor rodando em http://10.0.0.110:${port}`);
 });
